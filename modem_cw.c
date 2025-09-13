@@ -406,7 +406,7 @@ float cw_tx_get_sample(){
 		}
 		break;
 	case CW_DOT:
-		if ((symbol_now & CW_DASH) && cw_next_symbol == CW_IDLE){
+		if ((symbol_now & CW_DASH) && cw_next_symbol == CW_IDLE && keydown_count < cw_period) {
 			cw_next_symbol = CW_DASH;	
 		}
 		if (keydown_count == 0){
@@ -416,7 +416,7 @@ float cw_tx_get_sample(){
 		}
 		break;
 	case CW_DASH:
-		if ((symbol_now & CW_DOT) && cw_next_symbol == CW_IDLE){
+		if ((symbol_now & CW_DOT) && cw_next_symbol == CW_IDLE && keydown_count < cw_period) {
 			cw_next_symbol = CW_DOT;	
 		}
 		if (keydown_count == 0){
