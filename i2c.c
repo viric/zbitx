@@ -43,20 +43,30 @@ int32_t i2cbb_write_byte_data(uint8_t i2c_address, uint8_t command, uint8_t valu
 
 	ensure_open();
 
-	struct i2c_smbus_ioctl_data d;
-	d.read_write = I2C_SMBUS_WRITE;
-	d.command = command;
-	d.size = I2C_SMBUS_BYTE;
-	union i2c_smbus_data busdata;
-	busdata.byte = value;
+	uint8_t buf[2];
 
-	int res = ioctl(i2c_fd, I2C_SMBUS, &d);
+	buf[0] = command;
+	buf[1] = value;
+
+	// Write command and all
+	struct i2c_msg msg;
+	msg.addr = i2c_address;
+	msg.flags = 0;
+	msg.len = 2;
+	msg.buf = buf;
+
+	struct i2c_rdwr_ioctl_data idata;
+	idata.msgs = &msg;
+	idata.nmsgs = 1;
+
+	int res = ioctl(i2c_fd, I2C_RDWR, &idata);
   if (res < 0) {
-			fprintf(stderr, "Failed to ioctl I2C_SMBUS %d\n", i2c_address);
+			fprintf(stderr, "Failed to ioctl I2C_RDWR write byte data %x\n", i2c_address);
 			return -1;
   };
 	if (debug)
-	  fprintf(stderr, "i2c_write_byte_data ioctl() res %d\n", res);
+	  fprintf(stderr, "i2c_write_byte data ioctl() cmd %x res %d\n", command, res);
+
 	return 0;
 }
 
@@ -69,14 +79,13 @@ int32_t i2cbb_write_i2c_block_data(uint8_t i2c_address, uint8_t command,
 
   assert(length < 256);
 	buf[0] = command;
-	buf[1] = length;
-	memcpy(&buf[2], values, length);
+	memcpy(&buf[1], values, length);
 
 	// Write command and all
 	struct i2c_msg msg;
 	msg.addr = i2c_address;
 	msg.flags = 0;
-	msg.len = 1;
+	msg.len = length+1;
 	msg.buf = buf;
 
 	struct i2c_rdwr_ioctl_data idata;
@@ -89,7 +98,9 @@ int32_t i2cbb_write_i2c_block_data(uint8_t i2c_address, uint8_t command,
 			return -1;
   };
 	if (debug)
-	  fprintf(stderr, "i2c_write_i2c_block_data ioctl() length %d res %d\n", length, res);
+	  fprintf(stderr, "i2c_write_i2c_block_data ioctl() cmd %x length %d res %d\n", command, length, res);
+
+	return 0;
 }
 
 // This executes the SMBus “block read” protocol, returning negative errno else the number
@@ -98,25 +109,29 @@ int32_t i2cbb_read_i2c_block_data(uint8_t i2c_address, uint8_t command, uint8_t 
         uint8_t* values) {
 	ensure_open();
 
-	struct i2c_smbus_ioctl_data d;
-	d.read_write = I2C_SMBUS_READ;
-	d.command = command;
-	d.size = I2C_SMBUS_I2C_BLOCK_DATA;
+	// Command ignored, it's only about reading length bytes
+	uint8_t buf[256];
 
-	union i2c_smbus_data busdata;
-	busdata.block[0] = length;
-	d.data = &busdata;
-	assert(length < 32);
+	struct i2c_msg msg;
+	msg.addr = i2c_address;
+	msg.flags = I2C_M_RD;
+	msg.len = length;
+	msg.buf = buf;
 
-	int res = ioctl(i2c_fd, I2C_SMBUS, &d);
+	struct i2c_rdwr_ioctl_data idata;
+	idata.msgs = &msg;
+	idata.nmsgs = 1;
+
+	int res = ioctl(i2c_fd, I2C_RDWR, &idata);
   if (res < 0) {
-			fprintf(stderr, "Failed to ioctl I2C_SMBUS read i2c block data %x\n", i2c_address);
+			fprintf(stderr, "Failed to ioctl I2C_RDWR read i2c block data %x len %x\n", i2c_address, length);
 			return -1;
   };
-	if (debug)
-	  fprintf(stderr, "i2c_read_i2c_block_data ioctl() length %d res %d\n", length, res);
 
-	memcpy(values, &busdata.block[1], length);
+	memcpy(values, &buf[0], length);
+
+	if (debug)
+	  fprintf(stderr, "i2c_read_i2c_block_data ioctl() res %d length %d\n", res, length);
   return length;
 }
 
@@ -137,7 +152,7 @@ int32_t i2cbb_read_rll(uint8_t i2c_address, uint8_t* values) {
 
 	int res = ioctl(i2c_fd, I2C_RDWR, &idata);
   if (res < 0) {
-			fprintf(stderr, "Failed to ioctl I2C_SMBUS read rll %x\n", i2c_address);
+			fprintf(stderr, "Failed to ioctl I2C_RDWR read rll %x len %x\n", i2c_address, buf[0]);
 			return -1;
   };
 

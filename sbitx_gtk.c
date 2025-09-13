@@ -60,7 +60,7 @@ struct Queue q_zbitx_console;
 /* Front Panel controls */
 char pins[15] = {0, 2, 3, 6, 7, 
 								10, 11, 12, 13, 14, 
-								21, 22, 23, 25, 27};
+								21, /*22, 23,*/ 25, 27};
 
 #define ENC1_A (13)
 #define ENC1_B (12)

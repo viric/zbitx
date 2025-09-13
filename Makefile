@@ -6,7 +6,7 @@ SRCS=vfo.c si570.c sbitx_sound.c fft_filter.c  sbitx_gtk.c sbitx_utils.c \
 OBJS=$(patsubst %.c,%.o, $(SRCS))
 
 LIBS=ft8_lib/libft8.a 
-CFLAGS=-g `pkg-config --cflags gtk+-3.0` 
+CFLAGS=-O2 -g `pkg-config --cflags gtk+-3.0` 
 LDFLAGS= -lwiringPi -lasound -lm -lfftw3 -lfftw3f -pthread -lncurses -lsqlite3 \
 	`pkg-config --libs gtk+-3.0`
 
