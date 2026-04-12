@@ -3697,6 +3697,19 @@ void init_gpio_pins(){
 	pullUpDnControl(DASH, PUD_UP);
 }
 
+static double msec_diff(const struct timespec *a, const struct timespec *b)
+{
+	struct timespec diff;
+	diff.tv_sec = a->tv_sec - b->tv_sec;
+	diff.tv_nsec = a->tv_nsec - b->tv_nsec;
+	if (diff.tv_nsec < 0)
+	{
+		diff.tv_sec -= 1;
+		diff.tv_nsec += 1000000000;
+	}
+	return diff.tv_sec * 1000. + diff.tv_nsec * 0.000001;
+}
+
 int key_poll(){
 	int key = CW_IDLE;
 	//int input_method = get_cw_input_method();
@@ -3735,6 +3748,32 @@ int key_poll(){
 	//straight key
 	else if (ptt_state == LOW || dash_state == LOW)
 			key = CW_DOWN;
+
+#if 1
+  static struct timespec ref;
+  static struct timespec last;
+  static double maxtime;
+  static double mintime;
+  struct timespec now;
+
+	static int lastcount;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	double passed = msec_diff(&now, &last);
+	if (mintime == 0. || passed < mintime)
+		mintime = passed;
+	if (mintime == 0. || passed > maxtime)
+		maxtime = passed;
+	if (now.tv_sec > ref.tv_sec)
+	{
+		printf("key_poll times = %i, mintime = %g ms, maxtime = %g ms\n",
+		  lastcount, mintime, maxtime);
+		lastcount = 0;
+		mintime = maxtime = 0.;
+		ref = now;
+	}
+	last = now;
+	++lastcount;
+#endif
 
 	return key;
 }
