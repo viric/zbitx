@@ -34,6 +34,8 @@ The initial sync between the gui values, the core radio values, settings, et al 
 #include <errno.h>
 #include <wiringPi.h>
 #include <wiringSerial.h>
+#include <libevdev/libevdev.h>
+#include <poll.h>
 #include "sdr.h"
 #include "sound.h"
 #include "sdr_ui.h"
@@ -3718,6 +3720,71 @@ int key_poll(){
 		return 0;
 	}
 
+	// Check time since last time
+  static struct timespec last;
+  struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	double passed = msec_diff(&now, &last);
+	if (passed > 1) /* 1ms */
+	{
+	  static struct libevdev *ptt_dev, *dash_dev;
+		static struct pollfd fds[2];
+		int rc;
+		if (ptt_dev == 0)
+		{
+			libevdev_set_log_priority(LIBEVDEV_LOG_DEBUG); // This does nothing
+			// event0 is dash
+			int fd = open("/dev/input/event0", O_RDONLY);
+			rc = libevdev_new_from_fd(fd, &dash_dev);
+			if (rc < 0)
+			{
+				printf("Error opening event0\n");
+				exit(-1);
+			}
+
+			fds[0].fd = fd;
+			fds[0].events = POLLIN;
+
+			fd = open("/dev/input/event1", O_RDONLY);
+			rc = libevdev_new_from_fd(fd, &ptt_dev);
+			if (rc < 0)
+			{
+				printf("Error opening event1\n");
+				exit(-1);
+			}
+			fds[1].fd = fd;
+			fds[1].events = POLLIN;
+		}
+
+    rc = poll(fds, 2, 0);
+		if (rc >= 0 && fds[0].revents == POLLIN)
+		{
+			struct input_event ev;
+			rc = libevdev_next_event(dash_dev, LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING, &ev);
+			if (rc == LIBEVDEV_READ_STATUS_SUCCESS)
+			{
+			  printf("event type %i code %i value %i\n", ev.type, ev.code, ev.value);
+				if (ev.type == EV_KEY && ev.code == BTN_1 && ev.value == 1)
+				  ptt_state = LOW;
+			  else if (ev.type == EV_KEY && ev.value == 0)
+				  ptt_state = HIGH;
+			}
+		}
+		if (rc >= 0 && fds[1].revents == POLLIN)
+		{
+			struct input_event ev;
+			rc = libevdev_next_event(ptt_dev, LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING, &ev);
+			if (rc == LIBEVDEV_READ_STATUS_SUCCESS)
+			{
+			  printf("event type %i code %i value %i\n", ev.type, ev.code, ev.value);
+				if (ev.type == EV_KEY && ev.code == BTN_0 && ev.value == 1)
+				  dash_state = LOW;
+			  else if (ev.type == EV_KEY && ev.value == 0)
+				  dash_state = HIGH;
+			}
+		}
+	}
+
 	//quick look up of one of the three values of keying type
 	//STRAIG[H]T
 	//IAMBIC[\0]
@@ -3751,14 +3818,10 @@ int key_poll(){
 
 #if 1
   static struct timespec ref;
-  static struct timespec last;
   static double maxtime;
   static double mintime;
-  struct timespec now;
 
 	static int lastcount;
-	clock_gettime(CLOCK_MONOTONIC, &now);
-	double passed = msec_diff(&now, &last);
 	if (mintime == 0. || passed < mintime)
 		mintime = passed;
 	if (mintime == 0. || passed > maxtime)
@@ -3771,9 +3834,10 @@ int key_poll(){
 		mintime = maxtime = 0.;
 		ref = now;
 	}
-	last = now;
 	++lastcount;
 #endif
+
+	last = now;
 
 	return key;
 }
@@ -3906,8 +3970,8 @@ void hw_init(){
 
 	wiringPiISR(ENC2_A, INT_EDGE_BOTH, tuning_isr);
 	wiringPiISR(ENC2_B, INT_EDGE_BOTH, tuning_isr);
-	wiringPiISR(PTT, INT_EDGE_BOTH, key_isr);
-	wiringPiISR(DASH, INT_EDGE_BOTH, key_isr);
+	//wiringPiISR(PTT, INT_EDGE_BOTH, key_isr);
+	//wiringPiISR(DASH, INT_EDGE_BOTH, key_isr);
 }
 
 void hamlib_tx(int tx_input){

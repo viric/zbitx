@@ -74,3 +74,13 @@ dtoverlay=i2s-mmap
 #dtoverlay=rpi-proto
 avoid_warnings=1
 
+
+# To use i2c gpio
+dtoverlay=i2c-gpio,bus=3,i2c_gpio_sda=13,i2c_gpio_scl=6
+
+# To use buttons for kernel isr, debouncing and timestamp
+# PTT (left my paddle) KEY gpio 4 (wiringpi 7, pin 7) -> BTN_0 = keycode 0x100
+dtoverlay=gpio-key,label=ptt,gpio=4,gpio_pull=none,active_low=1,keycode=256
+# DASH (right my paddle) KEY gpio 5 (wiringpi 21, pin 29) -> BTN_1 = keycode 0x101
+dtoverlay=gpio-key,label=dash,gpio=5,gpio_pull=none,active_low=1,keycode=257
+
