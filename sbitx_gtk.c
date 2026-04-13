@@ -3310,6 +3310,8 @@ int do_record(struct field *f, cairo_t *gfx, int event, int a, int b, int c){
 	return 0;
 }
 
+static void flush_keyer_queue();
+
 void tx_on(int trigger){
 	char response[100];
 	struct field *f_batt = get_field("#batt");
@@ -3712,6 +3714,182 @@ static double msec_diff(const struct timespec *a, const struct timespec *b)
 	return diff.tv_sec * 1000. + diff.tv_nsec * 0.000001;
 }
 
+static struct {
+	struct input_event elem[100];
+	int start;
+	int end;
+	int nsec_passed;
+	struct timeval last_change;
+} key_queue;
+
+static void push_key(const struct input_event *ev)
+{
+	int nextend = key_queue.end + 1;
+	if (nextend >= 100)
+		nextend = 0;
+
+	if (nextend != key_queue.start)
+	{
+		printf("pushed key type %i code %i value %i\n", ev->type, ev->code, ev->value);
+		key_queue.elem[nextend] = *ev;
+		key_queue.end = nextend;
+	}
+
+	if (in_tx == 0)
+	{
+		flush_keyer_queue();
+	}
+}
+
+static void pull_key()
+{
+	if (key_queue.start == key_queue.end)
+	{
+		// Empty queue
+		return;
+	}
+
+  const struct input_event *ev = &key_queue.elem[key_queue.start];
+	printf("pulled key type %i code %i value %i\n", ev->type, ev->code, ev->value);
+	key_queue.start++;
+	if (key_queue.start >= 100)
+		key_queue.start = 0;
+
+  if (ev->code == BTN_0)
+	{
+	  if (ev->value == 1)
+			ptt_state = LOW;
+		else
+			ptt_state = HIGH;
+	}
+  else if (ev->code == BTN_1)
+	{
+	  if (ev->value == 1)
+			dash_state = LOW;
+		else
+			dash_state = HIGH;
+	}
+
+
+	key_queue.last_change = ev->time;
+	key_queue.nsec_passed = 0;
+}
+
+static void flush_keyer_queue()
+{
+	printf("flush_keyer_queue()\n");
+	while(ptt_state == HIGH &&
+		    dash_state == HIGH &&
+				key_queue.start != key_queue.end)
+	{
+		pull_key();
+	}
+}
+
+static int time_passed()
+{
+	if (key_queue.start == key_queue.end)
+	{
+		// Empty queue
+		return 0; // false
+	}
+
+	const int nsec_per_sample = 1000000000 / 96000;
+	key_queue.nsec_passed += nsec_per_sample;
+
+	struct timeval next = key_queue.last_change;
+	next.tv_usec += nsec_per_sample / 1000;
+	if (next.tv_usec > 1000000000)
+	{
+		next.tv_usec = 0;
+		next.tv_sec++;
+	}
+
+	const struct input_event *nextev = &key_queue.elem[key_queue.start];
+
+	// One of every 1000
+	int limit = 400;
+	if (in_tx)
+	  limit = 96000;
+
+  static int count = 0;
+	if (count > limit)
+	{
+		printf("time start %d.%06d next %d.%06d\n",
+			key_queue.last_change.tv_sec,
+			key_queue.last_change.tv_usec,
+			nextev->time.tv_sec,
+			nextev->time.tv_usec);
+	  count = 0;
+	}
+	++count;
+
+	return (key_queue.last_change.tv_sec > nextev->time.tv_sec || 
+	  key_queue.last_change.tv_usec > nextev->time.tv_usec);
+}
+
+static void sample_keyer()
+{
+	if (time_passed())
+		pull_key();
+}
+
+static void read_keyer()
+{
+	static struct libevdev *ptt_dev, *dash_dev;
+	static struct pollfd fds[2];
+	int rc;
+	if (ptt_dev == 0)
+	{
+		libevdev_set_log_priority(LIBEVDEV_LOG_DEBUG); // This does nothing
+		// event0 is dash
+		int fd = open("/dev/input/event0", O_RDONLY);
+		rc = libevdev_new_from_fd(fd, &dash_dev);
+		if (rc < 0)
+		{
+			printf("Error opening event0\n");
+			exit(-1);
+		}
+
+		fds[0].fd = fd;
+		fds[0].events = POLLIN;
+
+		fd = open("/dev/input/event1", O_RDONLY);
+		rc = libevdev_new_from_fd(fd, &ptt_dev);
+		if (rc < 0)
+		{
+			printf("Error opening event1\n");
+			exit(-1);
+		}
+		fds[1].fd = fd;
+		fds[1].events = POLLIN;
+	}
+
+ 	rc = poll(fds, 2, 0);
+	if (rc >= 0 && fds[0].revents == POLLIN)
+	{
+		struct input_event ev;
+		rc = libevdev_next_event(dash_dev, LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING, &ev);
+		if (rc == LIBEVDEV_READ_STATUS_SUCCESS)
+		{
+			if (ev.type == EV_KEY)
+			  push_key(&ev);
+		}
+	}
+	if (rc >= 0 && fds[1].revents == POLLIN)
+	{
+		struct input_event ev;
+		rc = libevdev_next_event(ptt_dev, LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING, &ev);
+		if (rc == LIBEVDEV_READ_STATUS_SUCCESS)
+		{
+			if (ev.type == EV_KEY)
+			  push_key(&ev);
+		}
+	}
+
+	sample_keyer();
+}
+
 int key_poll(){
 	int key = CW_IDLE;
 	//int input_method = get_cw_input_method();
@@ -3727,62 +3905,7 @@ int key_poll(){
 	double passed = msec_diff(&now, &last);
 	if (passed > 1) /* 1ms */
 	{
-	  static struct libevdev *ptt_dev, *dash_dev;
-		static struct pollfd fds[2];
-		int rc;
-		if (ptt_dev == 0)
-		{
-			libevdev_set_log_priority(LIBEVDEV_LOG_DEBUG); // This does nothing
-			// event0 is dash
-			int fd = open("/dev/input/event0", O_RDONLY);
-			rc = libevdev_new_from_fd(fd, &dash_dev);
-			if (rc < 0)
-			{
-				printf("Error opening event0\n");
-				exit(-1);
-			}
-
-			fds[0].fd = fd;
-			fds[0].events = POLLIN;
-
-			fd = open("/dev/input/event1", O_RDONLY);
-			rc = libevdev_new_from_fd(fd, &ptt_dev);
-			if (rc < 0)
-			{
-				printf("Error opening event1\n");
-				exit(-1);
-			}
-			fds[1].fd = fd;
-			fds[1].events = POLLIN;
-		}
-
-    rc = poll(fds, 2, 0);
-		if (rc >= 0 && fds[0].revents == POLLIN)
-		{
-			struct input_event ev;
-			rc = libevdev_next_event(dash_dev, LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING, &ev);
-			if (rc == LIBEVDEV_READ_STATUS_SUCCESS)
-			{
-			  printf("event type %i code %i value %i\n", ev.type, ev.code, ev.value);
-				if (ev.type == EV_KEY && ev.code == BTN_1 && ev.value == 1)
-				  ptt_state = LOW;
-			  else if (ev.type == EV_KEY && ev.value == 0)
-				  ptt_state = HIGH;
-			}
-		}
-		if (rc >= 0 && fds[1].revents == POLLIN)
-		{
-			struct input_event ev;
-			rc = libevdev_next_event(ptt_dev, LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING, &ev);
-			if (rc == LIBEVDEV_READ_STATUS_SUCCESS)
-			{
-			  printf("event type %i code %i value %i\n", ev.type, ev.code, ev.value);
-				if (ev.type == EV_KEY && ev.code == BTN_0 && ev.value == 1)
-				  dash_state = LOW;
-			  else if (ev.type == EV_KEY && ev.value == 0)
-				  dash_state = HIGH;
-			}
-		}
+		read_keyer();
 	}
 
 	//quick look up of one of the three values of keying type
@@ -3828,8 +3951,8 @@ int key_poll(){
 		maxtime = passed;
 	if (now.tv_sec > ref.tv_sec)
 	{
-		printf("key_poll times = %i, mintime = %g ms, maxtime = %g ms\n",
-		  lastcount, mintime, maxtime);
+		printf("key_poll times = %i, mintime = %g ms, maxtime = %g ms, nsec_passed = %i \n",
+		  lastcount, mintime, maxtime, key_queue.nsec_passed);
 		lastcount = 0;
 		mintime = maxtime = 0.;
 		ref = now;
