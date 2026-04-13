@@ -3718,7 +3718,7 @@ static struct {
 	struct input_event elem[100];
 	int start;
 	int end;
-	int nsec_passed;
+	long long nsec_passed;
 	struct timeval last_change;
 } key_queue;
 
@@ -3731,7 +3731,7 @@ static void push_key(const struct input_event *ev)
 	if (nextend != key_queue.start)
 	{
 		printf("pushed key type %i code %i value %i\n", ev->type, ev->code, ev->value);
-		key_queue.elem[nextend] = *ev;
+		key_queue.elem[key_queue.end] = *ev;
 		key_queue.end = nextend;
 	}
 
@@ -3772,6 +3772,9 @@ static void pull_key()
 
 
 	key_queue.last_change = ev->time;
+	printf("pulled time %d.%06d \n",
+		key_queue.last_change.tv_sec,
+		key_queue.last_change.tv_usec);
 	key_queue.nsec_passed = 0;
 }
 
@@ -3794,14 +3797,15 @@ static int time_passed()
 		return 0; // false
 	}
 
-	const int nsec_per_sample = 1000000000 / 96000;
+	const long long nsec_per_sample = 1000000000 / 96000;
 	key_queue.nsec_passed += nsec_per_sample;
 
 	struct timeval next = key_queue.last_change;
-	next.tv_usec += nsec_per_sample / 1000;
-	if (next.tv_usec > 1000000000)
+	next.tv_sec += key_queue.nsec_passed / 1000000000;
+	next.tv_usec += (key_queue.nsec_passed / 1000) % 1000000;
+	while (next.tv_usec >= 1000000)
 	{
-		next.tv_usec = 0;
+		next.tv_usec -= 1000000;
 		next.tv_sec++;
 	}
 
@@ -3816,16 +3820,17 @@ static int time_passed()
 	if (count > limit)
 	{
 		printf("time start %d.%06d next %d.%06d\n",
-			key_queue.last_change.tv_sec,
-			key_queue.last_change.tv_usec,
 			nextev->time.tv_sec,
-			nextev->time.tv_usec);
+			nextev->time.tv_usec,
+			next.tv_sec,
+			next.tv_usec
+			);
 	  count = 0;
 	}
 	++count;
 
-	return (key_queue.last_change.tv_sec > nextev->time.tv_sec || 
-	  key_queue.last_change.tv_usec > nextev->time.tv_usec);
+	return next.tv_sec > nextev->time.tv_sec ||
+	  next.tv_usec > nextev->time.tv_usec;
 }
 
 static void sample_keyer()
@@ -3865,29 +3870,30 @@ static void read_keyer()
 		fds[1].events = POLLIN;
 	}
 
- 	rc = poll(fds, 2, 0);
-	if (rc >= 0 && fds[0].revents == POLLIN)
+	do
 	{
-		struct input_event ev;
-		rc = libevdev_next_event(dash_dev, LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING, &ev);
-		if (rc == LIBEVDEV_READ_STATUS_SUCCESS)
+		rc = poll(fds, 2, 0);
+		if (rc > 0 && fds[0].revents == POLLIN)
 		{
-			if (ev.type == EV_KEY)
-			  push_key(&ev);
+			struct input_event ev;
+			rc = libevdev_next_event(dash_dev, LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING, &ev);
+			if (rc == LIBEVDEV_READ_STATUS_SUCCESS)
+			{
+				if (ev.type == EV_KEY)
+					push_key(&ev);
+			}
 		}
-	}
-	if (rc >= 0 && fds[1].revents == POLLIN)
-	{
-		struct input_event ev;
-		rc = libevdev_next_event(ptt_dev, LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING, &ev);
-		if (rc == LIBEVDEV_READ_STATUS_SUCCESS)
+		if (rc > 0 && fds[1].revents == POLLIN)
 		{
-			if (ev.type == EV_KEY)
-			  push_key(&ev);
+			struct input_event ev;
+			rc = libevdev_next_event(ptt_dev, LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING, &ev);
+			if (rc == LIBEVDEV_READ_STATUS_SUCCESS)
+			{
+				if (ev.type == EV_KEY)
+					push_key(&ev);
+			}
 		}
-	}
-
-	sample_keyer();
+	} while(rc > 0);
 }
 
 int key_poll(){
@@ -3907,6 +3913,8 @@ int key_poll(){
 	{
 		read_keyer();
 	}
+
+	sample_keyer();
 
 	//quick look up of one of the three values of keying type
 	//STRAIG[H]T
@@ -3951,8 +3959,13 @@ int key_poll(){
 		maxtime = passed;
 	if (now.tv_sec > ref.tv_sec)
 	{
-		printf("key_poll times = %i, mintime = %g ms, maxtime = %g ms, nsec_passed = %i \n",
-		  lastcount, mintime, maxtime, key_queue.nsec_passed);
+		printf("key_poll times = %i, mintime = %g ms, maxtime = %g ms\n",
+		  lastcount, mintime, maxtime);
+		printf("queue start = %i, end = %i, last = %d.%06d, msec_passed = %lli \n",
+		  key_queue.start, key_queue.end, 
+			key_queue.last_change.tv_sec,
+			key_queue.last_change.tv_usec,
+			key_queue.nsec_passed / 1000000);
 		lastcount = 0;
 		mintime = maxtime = 0.;
 		ref = now;
