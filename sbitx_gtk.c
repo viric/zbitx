@@ -3844,6 +3844,8 @@ static void add_key(int key)
 }
 
 static void* key_poll_thread(void *nothing){
+	struct timespec last;
+	clock_gettime(CLOCK_MONOTONIC, &last);
 	while(1)
 	{
 		pthread_mutex_lock(&ring.mutex);
@@ -3858,8 +3860,27 @@ static void* key_poll_thread(void *nothing){
 		pthread_mutex_unlock(&ring.mutex);
 
 		// 100 times less per second than samples
-		struct timespec ts = { 0, 1000000000 / 960 };
-	  nanosleep(&ts, NULL);
+		const struct timespec add = { 0, 1000000000 / 9600 };
+		struct timespec now;
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		struct timespec pause;
+		pause.tv_sec = last.tv_sec + add.tv_sec - now.tv_sec;
+		pause.tv_nsec = last.tv_nsec + add.tv_nsec - now.tv_nsec;
+		while(pause.tv_nsec < 0)
+		{
+			pause.tv_sec -= 1;
+			pause.tv_nsec += 1000000000;
+		}
+		while(pause.tv_nsec >= 1000000000)
+		{
+			pause.tv_sec += 1;
+			pause.tv_nsec -= 1000000000;
+		}
+
+	  last = now;
+
+		if (pause.tv_sec >= 0 && pause.tv_nsec >= 0)
+			nanosleep(&pause, NULL);
 	}
 
 	return NULL;

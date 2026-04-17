@@ -783,6 +783,7 @@ void cw_poll(int bytes_available, int tx_is_on){
 		cw_mode = get_cw_input_method();
 	}
 	else if (tx_is_on && cw_tx_until < millis_now){
+			log_timed("TX off");
 			tx_off();
 	}
 }
