@@ -22,6 +22,7 @@
 #include "i2cbb.h"
 #include "si5351.h"
 #include "ini.h"
+#include "log.h"
 int set_field(char *, char *);  // This should be moved to a .h file
 
 #define DEBUG 0
@@ -1294,6 +1295,7 @@ void tr_switch_v2(int tx_on){
 //v4 t/r switch uses separate lines for RX and TX powering 
 void tr_switch_v4(int tx_on){
 	if (tx_on){
+		log_timed("tr_switch ON start");
 
 		digitalWrite(RX_LINE, LOW);
 
@@ -1322,6 +1324,7 @@ void tr_switch_v4(int tx_on){
 		delay(10);
 		spectrum_reset();
 		digitalWrite(TX_LINE, HIGH);
+		log_timed("tr_switch ON finish");
 	}
 	else {
 

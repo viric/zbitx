@@ -89,6 +89,7 @@
 #include "sdr_ui.h"
 #include "modem_cw.h"
 #include "sound.h"
+#include "log.h"
 
 
 struct morse_tx {
@@ -366,7 +367,7 @@ float cw_tx_get_sample(){
 	switch(cw_current_symbol){
 	case CW_IDLE:		//this is the start case 
 		if (symbol_now == CW_DOWN){
-			keydown_count = 2000; //add a few samples, to debounce 
+			keydown_count = 0; //add a few samples, to debounce 
 			keyup_count = 0;
 			cw_current_symbol = CW_DOWN;
 		}
@@ -454,17 +455,25 @@ float cw_tx_get_sample(){
 		break;
 	}
 
+	static int envelope_started;
+
 	// shape the cw keying
 	if (keydown_count  > 0){
 		if(cw_envelope < 0.999)
 			cw_envelope = ((vfo_read(&cw_env)/FLOAT_SCALE) + 1)/2; 
-			keydown_count--;
+		if (!envelope_started && cw_envelope > 0.9)
+		{
+		  log_timed("Envelope 0.9");
+			envelope_started = 1;
+		}
+		keydown_count--;
 	}
 	else { //keydown_count is zero
 		if(cw_envelope > 0.001)
 			cw_envelope = ((vfo_read(&cw_env)/FLOAT_SCALE) + 1)/2; 
 		if (keyup_count > 0)
 			keyup_count--;
+		envelope_started = 0;
 	}
 
 	sample = (vfo_read(&cw_tone)/FLOAT_SCALE) * cw_envelope;

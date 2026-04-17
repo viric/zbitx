@@ -49,6 +49,7 @@ The initial sync between the gui values, the core radio values, settings, et al 
 #include "oled.h"
 #include "hist_disp.h"
 #include "ntputil.h"
+#include "log.h"
 
 #define FT8_START_QSO 1
 #define FT8_CONTINUE_QSO 0
@@ -3731,13 +3732,15 @@ static void push_key(const struct input_event *ev)
 
 	if (nextend != key_queue.start)
 	{
-		printf("pushed key type %i code %i value %i\n", ev->type, ev->code, ev->value);
+		if (false)
+			printf("pushed key type %i code %i value %i\n", ev->type, ev->code, ev->value);
 		key_queue.elem[key_queue.end] = *ev;
 		key_queue.end = nextend;
 	}
 
-  printf("nsec_passed = %lli %i %i\n", key_queue.nsec_passed,
-	  in_tx, key_queue.nsec_passed > 1000000000);
+	if (false)
+		printf("nsec_passed = %lli %i %i\n", key_queue.nsec_passed,
+			in_tx, key_queue.nsec_passed > 1000000000);
 	if (in_tx == 0 && key_queue.nsec_passed > 1000000000)
 	{
 		flush_keyer_queue();
@@ -3753,7 +3756,8 @@ static void pull_key()
 	}
 
   const struct input_event *ev = &key_queue.elem[key_queue.start];
-	printf("pulled key type %i code %i value %i\n", ev->type, ev->code, ev->value);
+	if (false)
+		printf("pulled key type %i code %i value %i\n", ev->type, ev->code, ev->value);
 	key_queue.start++;
 	if (key_queue.start >= 100)
 		key_queue.start = 0;
@@ -3761,7 +3765,10 @@ static void pull_key()
   if (ev->code == BTN_0)
 	{
 	  if (ev->value == 1)
+		{
+			log_timed("PTT state down");
 			ptt_state = LOW;
+		}
 		else
 			ptt_state = HIGH;
 	}
@@ -3782,9 +3789,10 @@ static void pull_key()
 	}
 
 	key_queue.last_change = ev->time;
-	printf("pulled time %d.%06d \n",
-		key_queue.last_change.tv_sec,
-		key_queue.last_change.tv_usec);
+	if (false)
+		printf("pulled time %d.%06d \n",
+			key_queue.last_change.tv_sec,
+			key_queue.last_change.tv_usec);
 
 	// Subtract from nsec_passe
 	key_queue.nsec_passed -= sec * 1000000000LL + usec * 1000LL;
@@ -3792,7 +3800,8 @@ static void pull_key()
 
 static void flush_keyer_queue()
 {
-	printf("flush_keyer_queue()\n");
+	if (false)
+		printf("flush_keyer_queue()\n");
 	while(ptt_state == HIGH &&
 		    dash_state == HIGH &&
 				key_queue.start != key_queue.end)
@@ -3834,7 +3843,7 @@ static int time_passed()
 	  limit = 96000;
 
   static int count = 0;
-	if (count > limit)
+	if (false && count > limit)
 	{
 		printf("time start %d.%06d next %d.%06d\n",
 			nextev->time.tv_sec,
@@ -3912,7 +3921,13 @@ static void read_keyer()
 				if (rc == LIBEVDEV_READ_STATUS_SUCCESS)
 				{
 					if (ev.type == EV_KEY)
+					{
+						if (ev.value == 1)
+						{
+							log_timed("PTT key down");
+						}
 						push_key(&ev);
+					}
 				}
 			} while(rc == LIBEVDEV_READ_STATUS_SUCCESS);
 		}
@@ -3969,7 +3984,7 @@ int key_poll(){
 			key |= CW_DOT;
 	}
 	//straight key
-	else if (ptt_state == LOW || dash_state == LOW)
+	else if (ptt_state == LOW /*|| dash_state == LOW*/)
 			key = CW_DOWN;
 
 #if 1
@@ -3986,11 +4001,12 @@ int key_poll(){
 	{
 		printf("key_poll times = %i, mintime = %g ms, maxtime = %g ms\n",
 		  lastcount, mintime, maxtime);
-		printf("queue start = %i, end = %i, last = %d.%06d, msec_passed = %lli \n",
-		  key_queue.start, key_queue.end, 
-			key_queue.last_change.tv_sec,
-			key_queue.last_change.tv_usec,
-			key_queue.nsec_passed / 1000000);
+		if (false)
+			printf("queue start = %i, end = %i, last = %d.%06d, msec_passed = %lli \n",
+				key_queue.start, key_queue.end, 
+				key_queue.last_change.tv_sec,
+				key_queue.last_change.tv_usec,
+				key_queue.nsec_passed / 1000000);
 		lastcount = 0;
 		mintime = maxtime = 0.;
 		ref = now;
