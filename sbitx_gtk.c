@@ -3716,52 +3716,11 @@ static double msec_diff(const struct timespec *a, const struct timespec *b)
 }
 
 static struct {
-	struct input_event elem[100];
-	int start;
-	int end;
-	long long nsec_passed;
-	struct timeval last_change;
 	pthread_mutex_t mutex;
 } key_queue = { .mutex = PTHREAD_MUTEX_INITIALIZER };
 
 static void push_key(const struct input_event *ev)
 {
-	int nextend = key_queue.end + 1;
-	if (nextend >= 100)
-		nextend = 0;
-
-	if (nextend != key_queue.start)
-	{
-		if (false)
-			printf("pushed key type %i code %i value %i\n", ev->type, ev->code, ev->value);
-		key_queue.elem[key_queue.end] = *ev;
-		key_queue.end = nextend;
-	}
-
-	if (false)
-		printf("nsec_passed = %lli %i %i\n", key_queue.nsec_passed,
-			in_tx, key_queue.nsec_passed > 1000000000);
-	if (in_tx == 0 && key_queue.nsec_passed > 1000000000)
-	{
-		flush_keyer_queue();
-	}
-}
-
-static void pull_key()
-{
-	if (key_queue.start == key_queue.end)
-	{
-		// Empty queue
-		return;
-	}
-
-  const struct input_event *ev = &key_queue.elem[key_queue.start];
-	if (false)
-		printf("pulled key type %i code %i value %i\n", ev->type, ev->code, ev->value);
-	key_queue.start++;
-	if (key_queue.start >= 100)
-		key_queue.start = 0;
-
   if (ev->code == BTN_0)
 	{
 	  if (ev->value == 1)
@@ -3779,90 +3738,6 @@ static void pull_key()
 		else
 			dash_state = HIGH;
 	}
-
-	int sec = ev->time.tv_sec - key_queue.last_change.tv_sec;
-	int usec = ev->time.tv_usec - key_queue.last_change.tv_usec;
-	if (usec < 0)
-	{
-		usec += 1000000;
-		sec -= 1;
-	}
-
-	key_queue.last_change = ev->time;
-	if (false)
-		printf("pulled time %d.%06d \n",
-			key_queue.last_change.tv_sec,
-			key_queue.last_change.tv_usec);
-
-	// Subtract from nsec_passe
-	key_queue.nsec_passed -= sec * 1000000000LL + usec * 1000LL;
-}
-
-static void flush_keyer_queue()
-{
-	if (false)
-		printf("flush_keyer_queue()\n");
-	while(ptt_state == HIGH &&
-		    dash_state == HIGH &&
-				key_queue.start != key_queue.end)
-	{
-		pull_key();
-		key_queue.nsec_passed = 0;
-	}
-}
-
-static int time_passed()
-{
-	long long nsec_per_sample = 1000000000 / 96000;
-	if (in_tx == 0)
-	{
-	  nsec_per_sample = 1000000000 / 400;
-	}
-	key_queue.nsec_passed += nsec_per_sample;
-
-	if (key_queue.start == key_queue.end)
-	{
-		// Empty queue
-		return 0; // false
-	}
-
-	struct timeval next = key_queue.last_change;
-	next.tv_sec += key_queue.nsec_passed / 1000000000;
-	next.tv_usec += (key_queue.nsec_passed / 1000) % 1000000;
-	while (next.tv_usec >= 1000000)
-	{
-		next.tv_usec -= 1000000;
-		next.tv_sec++;
-	}
-
-	const struct input_event *nextev = &key_queue.elem[key_queue.start];
-
-	// One of every 1000
-	int limit = 400;
-	if (in_tx)
-	  limit = 96000;
-
-  static int count = 0;
-	if (false && count > limit)
-	{
-		printf("time start %d.%06d next %d.%06d\n",
-			nextev->time.tv_sec,
-			nextev->time.tv_usec,
-			next.tv_sec,
-			next.tv_usec
-			);
-	  count = 0;
-	}
-	++count;
-
-	return next.tv_sec > nextev->time.tv_sec ||
-	  next.tv_usec > nextev->time.tv_usec;
-}
-
-static void sample_keyer()
-{
-	while (time_passed())
-		pull_key();
 }
 
 static void read_keyer()
@@ -3952,8 +3827,6 @@ int key_poll(){
 	{
 		read_keyer();
 	}
-
-	sample_keyer();
 	pthread_mutex_unlock(&key_queue.mutex);
 
 	//quick look up of one of the three values of keying type
@@ -4001,12 +3874,6 @@ int key_poll(){
 	{
 		printf("key_poll times = %i, mintime = %g ms, maxtime = %g ms\n",
 		  lastcount, mintime, maxtime);
-		if (false)
-			printf("queue start = %i, end = %i, last = %d.%06d, msec_passed = %lli \n",
-				key_queue.start, key_queue.end, 
-				key_queue.last_change.tv_sec,
-				key_queue.last_change.tv_usec,
-				key_queue.nsec_passed / 1000000);
 		lastcount = 0;
 		mintime = maxtime = 0.;
 		ref = now;

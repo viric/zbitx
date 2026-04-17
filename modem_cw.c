@@ -367,7 +367,7 @@ float cw_tx_get_sample(){
 	switch(cw_current_symbol){
 	case CW_IDLE:		//this is the start case 
 		if (symbol_now == CW_DOWN){
-			keydown_count = 0; //add a few samples, to debounce 
+			keydown_count = 2000; //add a few samples, to debounce 
 			keyup_count = 0;
 			cw_current_symbol = CW_DOWN;
 		}
