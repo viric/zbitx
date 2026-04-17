@@ -3715,10 +3715,6 @@ static double msec_diff(const struct timespec *a, const struct timespec *b)
 	return diff.tv_sec * 1000. + diff.tv_nsec * 0.000001;
 }
 
-static struct {
-	pthread_mutex_t mutex;
-} key_queue = { .mutex = PTHREAD_MUTEX_INITIALIZER };
-
 static void push_key(const struct input_event *ev)
 {
   if (ev->code == BTN_0)
@@ -3729,7 +3725,10 @@ static void push_key(const struct input_event *ev)
 			ptt_state = LOW;
 		}
 		else
+		{
+			log_timed("PTT state up");
 			ptt_state = HIGH;
+		}
 	}
   else if (ev->code == BTN_1)
 	{
@@ -3797,9 +3796,10 @@ static void read_keyer()
 				{
 					if (ev.type == EV_KEY)
 					{
-						if (ev.value == 1)
-						{
+						if (ev.value == 1) {
 							log_timed("PTT key down");
+						} else if (ev.value == 0) {
+							log_timed("PTT key up");
 						}
 						push_key(&ev);
 					}
@@ -3809,7 +3809,86 @@ static void read_keyer()
 	} while(rc > 0);
 }
 
-int key_poll(){
+// This will be called at irregular intervals.
+// During TX, at 96000Hz
+// During RX, at 400Hz
+// Let's store two periods of sound: 2*8192 frames
+#define RINGLEN 2*8192
+static struct {
+  int queue[RINGLEN];
+	int start;
+	int end;
+	int lastkey;
+	pthread_mutex_t mutex;
+} ring = { .mutex = PTHREAD_MUTEX_INITIALIZER, .lastkey = CW_IDLE };
+
+static int key_poll_regular();
+
+static void add_key(int key)
+{
+		int nextend = ring.end + 1;
+		if (nextend >= RINGLEN)
+		  nextend = 0;
+
+    if (nextend == ring.start)
+		{
+			// Flush out the old item
+			ring.start++;
+			if (ring.start >= RINGLEN)
+			  ring.start = 0;
+		}
+
+		ring.queue[nextend] = key;
+		ring.end = nextend;
+		ring.lastkey = key;
+}
+
+static void* key_poll_thread(void *nothing){
+	while(1)
+	{
+		pthread_mutex_lock(&ring.mutex);
+		int key = key_poll_regular();
+		if (in_tx == TX_OFF) {
+			ring.start = ring.end;
+			add_key(key);
+		} else {
+			for(int i=0; i < 100; ++i)
+				add_key(key);
+		}
+		pthread_mutex_unlock(&ring.mutex);
+
+		// 100 times less per second than samples
+		struct timespec ts = { 0, 1000000000 / 960 };
+	  nanosleep(&ts, NULL);
+	}
+
+	return NULL;
+}
+
+static void start_keypoll_thread()
+{
+	static pthread_t t;
+	pthread_create(&t, NULL, key_poll_thread, NULL);
+}
+
+int key_poll()
+{
+	pthread_mutex_lock(&ring.mutex);
+  if (ring.start == ring.end)
+	{
+		pthread_mutex_unlock(&ring.mutex);
+		return ring.lastkey;
+	}
+	int key = ring.queue[ring.start];
+	ring.start++;
+	if (ring.start >= RINGLEN)
+		ring.start = 0;
+	pthread_mutex_unlock(&ring.mutex);
+
+	return key;
+}
+
+static int key_poll_regular(){
 	int key = CW_IDLE;
 	//int input_method = get_cw_input_method();
 	if (cw_input == NULL){
@@ -3822,12 +3901,10 @@ int key_poll(){
   struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	double passed = msec_diff(&now, &last);
-	pthread_mutex_lock(&key_queue.mutex);
-	if (passed > 1) /* 1ms */
+	if (passed >= 0) /* 1ms */
 	{
 		read_keyer();
 	}
-	pthread_mutex_unlock(&key_queue.mutex);
 
 	//quick look up of one of the three values of keying type
 	//STRAIG[H]T
@@ -5470,6 +5547,7 @@ int main( int argc, char* argv[] ) {
   hamlib_start();
 	remote_start();
 
+  start_keypoll_thread();
 	rtc_read();
 	zbitx_init();
 
