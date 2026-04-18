@@ -367,17 +367,20 @@ float cw_tx_get_sample(){
 	switch(cw_current_symbol){
 	case CW_IDLE:		//this is the start case 
 		if (symbol_now == CW_DOWN){
-			keydown_count = 20; //add a few samples, to debounce 
+		  log_timed("CW_DOWN");
+			keydown_count = 2000; //add a few samples, to debounce 
 			keyup_count = 0;
 			cw_current_symbol = CW_DOWN;
 		}
 		else if (symbol_now & CW_DOT){
+		  log_timed("CW_DOT");
 			keydown_count = cw_period;
 			keyup_count = cw_period;
 			cw_current_symbol = CW_DOT;
 			cw_last_symbol = CW_IDLE;
 		}
 		else if (symbol_now & CW_DASH){
+		  log_timed("CW_DASH");
 			keydown_count = cw_period * 3;
 			keyup_count = cw_period;
 			cw_current_symbol = CW_DASH;
@@ -397,18 +400,19 @@ float cw_tx_get_sample(){
 		break;
 	case CW_DOWN:		//the straight key
 		if (symbol_now == CW_DOWN){ //continue, keep up the good work
-			keydown_count = 20;
+			keydown_count = 2000;
 			keyup_count = 0;
 		}
 		else{ // ok, break it up
+		  log_timed("CW_IDLE");
 			keydown_count = 0;
 			keyup_count = 0;
 			cw_current_symbol = CW_IDLE;//go back to idle
 		}
 		break;
 	case CW_DOT:
-		if ((symbol_now & CW_DASH) && cw_next_symbol == CW_IDLE && keydown_count < cw_period) {
-			printf("-- DASH continue\n");
+		if ((symbol_now & CW_DASH) && cw_next_symbol == CW_IDLE) {
+			log_timed("-- next = DASH");
 			cw_next_symbol = CW_DASH;	
 		}
 		if (keydown_count == 0){
@@ -419,7 +423,7 @@ float cw_tx_get_sample(){
 		break;
 	case CW_DASH:
 		if ((symbol_now & CW_DOT) && cw_next_symbol == CW_IDLE && keydown_count < cw_period) {
-			printf("-- DOT continue\n");
+			log_timed("-- next = DOT");
 			cw_next_symbol = CW_DOT;	
 		}
 		if (keydown_count == 0){
@@ -431,7 +435,16 @@ float cw_tx_get_sample(){
 	case CW_DASH_DELAY:
 	case CW_WORD_DELAY:
 	case CW_DOT_DELAY:
+		if ((symbol_now & CW_DASH) && cw_last_symbol == CW_DOT && cw_next_symbol == CW_IDLE) {
+			log_timed("-- next2 = DASH");
+			cw_next_symbol = CW_DASH;	
+		}
+		if ((symbol_now & CW_DOT) && cw_last_symbol == CW_DASH && cw_next_symbol == CW_IDLE) {
+			log_timed("-- next2 = DOT");
+			cw_next_symbol = CW_DOT;	
+		}
 		if (keyup_count == 0){
+		  log_timed("cw_next_symbol after delay: %i", cw_next_symbol);
 			cw_current_symbol = cw_next_symbol;
 			if (cw_current_symbol == CW_DOT){
 				keydown_count = cw_period;
@@ -486,15 +499,7 @@ float cw_tx_get_sample(){
 	sample = (vfo_read(&cw_tone)/FLOAT_SCALE) * cw_envelope;
 
 	if (keyup_count > 0 || keydown_count > 0){
-		int p = 0;
-		if (cw_tx_until != millis_now + get_cw_delay())
-		{
-			log_timed("Set millis");
-			p = 1;
-		}
 		cw_tx_until = millis_now + get_cw_delay(); 
-		if (p)
-			printf("sound_now = %u, until = %u\n", millis_now, cw_tx_until);
 	}
 	return sample / 8;
 }
@@ -794,12 +799,10 @@ void cw_poll(int bytes_available, int tx_is_on){
 	if (!tx_is_on && (cw_bytes_available || key_poll() || (symbol_next && *symbol_next)) > 0){
 		tx_on(TX_SOFT);
 		millis_now = sbitx_millis();
-		log_timed("TX on (millis_now = %u)", millis_now);
 		cw_tx_until = get_cw_delay() + millis_now;
 		cw_mode = get_cw_input_method();
 	}
 	else if (tx_is_on && cw_tx_until < millis_now){
-			log_timed("TX off (cw_tx_until = %u, millis_now = %u)", cw_tx_until, millis_now);
 			tx_off();
 	}
 }

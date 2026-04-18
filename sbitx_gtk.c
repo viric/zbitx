@@ -3311,8 +3311,6 @@ int do_record(struct field *f, cairo_t *gfx, int event, int a, int b, int c){
 	return 0;
 }
 
-static void flush_keyer_queue();
-
 void tx_on(int trigger){
 	char response[100];
 	struct field *f_batt = get_field("#batt");
@@ -3782,7 +3780,14 @@ static void read_keyer()
 				if (rc == LIBEVDEV_READ_STATUS_SUCCESS)
 				{
 					if (ev.type == EV_KEY)
+					{
+						if (ev.value == 1) {
+							log_timed("DASH key down");
+						} else if (ev.value == 0) {
+							log_timed("DASH key up");
+						}
 						push_key(&ev);
+					}
 				}
 			} while(rc == LIBEVDEV_READ_STATUS_SUCCESS);
 		}
@@ -3843,6 +3848,16 @@ static void add_key(int key)
 		ring.lastkey = key;
 }
 
+static void flush_all_nokey()
+{
+	while(ring.start != ring.end && ring.queue[ring.start] == 0)
+	{
+		ring.start++;
+		if (ring.start >= RINGLEN)
+			ring.start = 0;
+	}
+}
+
 static void* key_poll_thread(void *nothing){
 	struct timespec last;
 	clock_gettime(CLOCK_MONOTONIC, &last);
@@ -3851,7 +3866,8 @@ static void* key_poll_thread(void *nothing){
 		pthread_mutex_lock(&ring.mutex);
 		int key = key_poll_regular();
 		if (in_tx == TX_OFF) {
-			ring.start = ring.end;
+			// Flush all nokey
+			flush_all_nokey();
 			add_key(key);
 		} else {
 			for(int i=0; i < 100; ++i)
