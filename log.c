@@ -1,10 +1,13 @@
 #include <stdio.h>
+#include <stdarg.h>
 #include <time.h>
 #include <pthread.h>
 #include "log.h"
 
-void log_timed(const char *str)
+void log_timed(const char *str, ...)
 {
+  va_list l;
+	va_start(l, str);
 	static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
   pthread_mutex_lock(&mutex);
 
@@ -17,7 +20,9 @@ void log_timed(const char *str)
 
 	double diff_ms = (now_s - last_s) * 1000.;
 
-	printf("[%.3f + %.1f ms] %s\n", now_s, diff_ms, str);
+	printf("[%.3f + %.1f ms] ", now_s, diff_ms, str);
+	vprintf(str, l);
+	printf("\n");
 	fflush(stdout);
 
   pthread_mutex_unlock(&mutex);

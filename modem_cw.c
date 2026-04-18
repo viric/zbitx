@@ -367,7 +367,7 @@ float cw_tx_get_sample(){
 	switch(cw_current_symbol){
 	case CW_IDLE:		//this is the start case 
 		if (symbol_now == CW_DOWN){
-			keydown_count = 2000; //add a few samples, to debounce 
+			keydown_count = 20; //add a few samples, to debounce 
 			keyup_count = 0;
 			cw_current_symbol = CW_DOWN;
 		}
@@ -397,7 +397,7 @@ float cw_tx_get_sample(){
 		break;
 	case CW_DOWN:		//the straight key
 		if (symbol_now == CW_DOWN){ //continue, keep up the good work
-			keydown_count = 2000;
+			keydown_count = 20;
 			keyup_count = 0;
 		}
 		else{ // ok, break it up
@@ -459,16 +459,23 @@ float cw_tx_get_sample(){
 
 	// shape the cw keying
 	if (keydown_count  > 0){
+		if (envelope_started == 0)
+		{
+			log_timed("keydown > 0");
+			envelope_started = 1;
+		}
 		if(cw_envelope < 0.999)
 			cw_envelope = ((vfo_read(&cw_env)/FLOAT_SCALE) + 1)/2; 
-		if (!envelope_started && cw_envelope > 0.9)
+		if (envelope_started == 2 && cw_envelope > 0.9)
 		{
-		  log_timed("Envelope 0.9");
-			envelope_started = 1;
+		  log_timed("Envelope > 0.9");
+			envelope_started = 2;
 		}
 		keydown_count--;
 	}
 	else { //keydown_count is zero
+		if (envelope_started > 0)
+			log_timed("Keydown count zero");
 		if(cw_envelope > 0.001)
 			cw_envelope = ((vfo_read(&cw_env)/FLOAT_SCALE) + 1)/2; 
 		if (keyup_count > 0)
@@ -479,7 +486,15 @@ float cw_tx_get_sample(){
 	sample = (vfo_read(&cw_tone)/FLOAT_SCALE) * cw_envelope;
 
 	if (keyup_count > 0 || keydown_count > 0){
+		int p = 0;
+		if (cw_tx_until != millis_now + get_cw_delay())
+		{
+			log_timed("Set millis");
+			p = 1;
+		}
 		cw_tx_until = millis_now + get_cw_delay(); 
+		if (p)
+			printf("sound_now = %u, until = %u\n", millis_now, cw_tx_until);
 	}
 	return sample / 8;
 }
@@ -778,12 +793,13 @@ void cw_poll(int bytes_available, int tx_is_on){
 
 	if (!tx_is_on && (cw_bytes_available || key_poll() || (symbol_next && *symbol_next)) > 0){
 		tx_on(TX_SOFT);
-		millis_now = millis();
+		millis_now = sbitx_millis();
+		log_timed("TX on (millis_now = %u)", millis_now);
 		cw_tx_until = get_cw_delay() + millis_now;
 		cw_mode = get_cw_input_method();
 	}
 	else if (tx_is_on && cw_tx_until < millis_now){
-			log_timed("TX off");
+			log_timed("TX off (cw_tx_until = %u, millis_now = %u)", cw_tx_until, millis_now);
 			tx_off();
 	}
 }

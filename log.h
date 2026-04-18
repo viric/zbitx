@@ -1,1 +1,1 @@
-void log_timed(const char *str);
+void log_timed(const char *str, ...);
