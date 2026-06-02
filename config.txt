@@ -69,6 +69,10 @@ max_framebuffers=2
 #gpio=4,17,27,22,10,9,11,5,6,13,26,16,12,7,8,25,24=ip,pu
 gpio=4,5,9,10,11,17,22,27=ip,pu
 gpio=24,23=op,pu
+
+# Use kernel i2c-gpio for bitbanging to Si5131 and front panel
+dtoverlay=i2c-gpio,bus=3,i2c_gpio_sda=13,i2c_gpio_scl=6
+
 dtoverlay=audioinjector-wm8731-audio
 dtoverlay=i2s-mmap
 #dtoverlay=rpi-proto
