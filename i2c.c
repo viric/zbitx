@@ -16,7 +16,7 @@
 #include <assert.h>
 #include "i2cbb.h"
 
-static int debug = 1;
+static int debug = 0;
 
 static int i2c_fd = -1;
 void i2cbb_init(uint8_t pin_number_sda, uint8_t pin_number_scl)
