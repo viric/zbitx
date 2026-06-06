@@ -27,7 +27,7 @@ int set_field(char *, char *);  // This should be moved to a .h file
 #define DEBUG 0
 
 char audio_card[32];
-static int tx_shift = 512;
+static int center_bin = 512;
 
 FILE *pf_debug = NULL;
 
@@ -138,13 +138,17 @@ struct power_settings band_power[] ={
 struct Queue qremote;
 
 void radio_tune_to(u_int32_t f){
-	printf("radio_tune_t %d\n", f);
+
+	int freq_shift = (int)(46.875 * (1.0 * rx_list->tuned_bin));
+
+	printf("radio_tune_to %u, freq_shift = %i, tuned_bin = %li\n", f, freq_shift, rx_list->tuned_bin);
+
 	if (rx_list->mode == MODE_CW)
-  	si5351bx_setfreq(2, f + bfo_freq - 24000 + TUNING_SHIFT - rx_pitch);
+  	si5351bx_setfreq(2, f + bfo_freq - freq_shift + TUNING_SHIFT - rx_pitch);
 	else if (rx_list->mode == MODE_CWR)
-  	si5351bx_setfreq(2, f + bfo_freq - 24000 + TUNING_SHIFT + rx_pitch);
+  	si5351bx_setfreq(2, f + bfo_freq - freq_shift + TUNING_SHIFT + rx_pitch);
 	else
-  	si5351bx_setfreq(2, f + bfo_freq - 24000 + TUNING_SHIFT);
+  	si5351bx_setfreq(2, f + bfo_freq - freq_shift + TUNING_SHIFT);
 
 //  printf("Setting radio rx_pitch %d\n", rx_pitch);
 }
@@ -234,14 +238,19 @@ void spectrum_update(){
 	//someone wants to try I Q channels 
 	//in hardware
 
+	//we shift the bins by the offset of the center bin 
+	int offset_bin = center_bin - MAX_BINS/4; 
+	//int offset_bin = 100; 
+
 	// this has been hand optimized to lower
 	//the inordinate cpu usage
 	for (int i = 1269; i < 1803; i++){
 
+		//int j = (i + offset_bin) % MAX_BINS;
 		fft_bins[i] = ((1.0 - spectrum_speed) * fft_bins[i]) + 
-			(spectrum_speed * cabs(fft_spectrum[i]));
+			(spectrum_speed * cabs(fft_spectrum[i - offset_bin]));
 
-		int y = power2dB(cnrmf(fft_bins[i])); 
+		int y = power2dB(cnrmf(fft_bins[i]));
 		spectrum_plot[i] = y;
 	}
 }
@@ -900,7 +909,7 @@ void tx_process(
 
 	//now rotate to the tx_bin 
 	//rememeber the AM is already a carrier modulated at 24 KHz
-	int shift = tx_shift;
+	int shift = center_bin;
 	if (r->mode == MODE_AM)
 		shift = 0;
 	for (i = 0; i < MAX_BINS; i++){
@@ -1040,6 +1049,8 @@ static int hw_settings_handler(void* user, const char* section,
 		si570_xtal = atoi(value);
 	if (!strcmp(name, "hw"))
 		sbitx_version = atoi(value);
+	if (!strcmp(name, "center_bin"))
+		center_bin = atoi(value);
 }
 
 static void read_hw_ini(){
@@ -1402,8 +1413,8 @@ void setup(char *audio_output_device){
 
 	add_rx(7000000, MODE_LSB, -3000, -300);
 	add_tx(7000000, MODE_LSB, -3000, -300);
-	rx_list->tuned_bin = 512;
-  tx_list->tuned_bin = 512;
+	rx_list->tuned_bin = center_bin;
+	tx_list->tuned_bin = center_bin;
 	tx_init(7000000, MODE_LSB, -3000, -150);
 
 	//detect the version of sbitx if not read from hw_settings
